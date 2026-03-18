@@ -1,0 +1,11 @@
+﻿global:
+  scrape_interval: 5s # Coleta dados a cada 5 segundos
+
+scrape_configs:
+  - job_name: "python_elt"
+    static_configs:
+      - targets: ["host.docker.internal:8000"] # Pipeline rodando no host Windows
+
+  - job_name: "node"
+    static_configs:
+      - targets: ["node-exporter:9100"]

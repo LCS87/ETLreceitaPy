@@ -1,0 +1,64 @@
+﻿services:
+  # --- BANCO DE DADOS ---
+  postgres_receita:
+    image: postgres:15
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: admin_receita
+      POSTGRES_PASSWORD: receita@2026
+      POSTGRES_DB: receita_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+     test: ["CMD-SHELL", "pg_isready -U admin_receita -d receita_db"]
+     interval: 10s
+     timeout: 5s
+     retries: 5
+
+  # --- O PIPELINE (Worker) ---
+  elt_pipeline:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile_app
+    container_name: elt_pipeline_worker
+    depends_on:
+      postgres_receita:
+        condition: service_healthy # <--- Espera o Check de saúde
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./docs/logs:/app/docs/logs
+
+  # --- MONITORAMENTO ---
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus_service
+    volumes:
+      - ./prom_config.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9091:9090"  # <--- Mudamos aqui: o Windows acessa 9091, o Docker usa 9090
+    depends_on:
+      - elt_pipeline
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana_service
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+
+volumes:
+  postgres_data:

@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+LABEL maintainer="Data Analyst"
+LABEL description="Pipeline ELT Receita Federal - Extração CNPJ"
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+# Define o PYTHONPATH para que o Python encontre a pasta 'src'
+ENV PYTHONPATH=/app
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# --- A CORREÇÃO ESTÁ AQUI ---
+COPY src/ ./src/
+COPY app_entrypoint.py . 
+COPY .env . 
+
+RUN mkdir -p data/raw_zips data/silver_parquet docs/logs data/gold_csv
+
+# Como o arquivo está na raiz /app, chamamos ele direto:
+CMD ["python", "app_entrypoint.py"]

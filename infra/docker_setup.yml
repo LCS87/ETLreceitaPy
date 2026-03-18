@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  postgres_receita:
+    image: postgres:15
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: admin_receita
+      POSTGRES_PASSWORD: receita@2026
+      POSTGRES_DB: receita_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus_service
+    volumes:
+      - ./prom_config.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9091:9090"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana_service
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - postgres_receita
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - '--path.rootfs=/host'
+    network_mode: "host" # Essencial para ler o hardware do Windows/Host
+    pid: "host"
+    restart: always
+    volumes:
+      - '/:/host:ro,rslave'
+
+volumes:
+  postgres_data:

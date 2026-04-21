@@ -28,6 +28,11 @@
       postgres_receita:
         condition: service_healthy # <--- Espera o Check de saúde
     env_file: .env
+    environment:
+      - DB_HOST=postgres_receita
+      - DB_PORT=5432
+    ports:
+      - "8000:8000"
     volumes:
       - ./data:/app/data
       - ./docs/logs:/app/docs/logs
@@ -50,6 +55,9 @@
       - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana_dashboard.json:/var/lib/grafana/dashboards/elt_pipeline.json
     depends_on:
       - prometheus
 

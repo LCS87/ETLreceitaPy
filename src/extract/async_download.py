@@ -19,7 +19,9 @@ class AsyncDownloader:
         self.target_dir = os.getenv("RECEITA_TARGET_DIR", "2026-03")
 
     async def _discover_latest_folder(self, session: aiohttp.ClientSession) -> str:
-        """Descobre automaticamente a pasta mais recente (YYYY-MM)"""
+        """Descobre automaticamente a pasta mais recente (YYYY-MM).
+        Usa RECEITA_TARGET_DIR do .env como fallback se a descoberta falhar."""
+        fallback = os.getenv("RECEITA_TARGET_DIR", "2026-03")
         url = f"{self.webdav_base}/"
         auth = aiohttp.BasicAuth(self.share_token, "")
         headers = {"Depth": "1"}
@@ -29,7 +31,7 @@ class AsyncDownloader:
             async with session.request("PROPFIND", url, auth=auth, headers=headers) as resp:
                 if resp.status not in [200, 207]:
                     logger.warning(f"Falha ao listar pastas: Status {resp.status}")
-                    return "2026-03"  # Fallback
+                    return fallback
 
                 xml_content = await resp.text()
                 root = ET.fromstring(xml_content)
@@ -52,17 +54,16 @@ class AsyncDownloader:
                                 continue
 
                 if folders:
-                    # Ordena e pega a mais recente
                     latest = sorted(folders)[-1]
                     logger.info(f"Pasta mais recente encontrada: {latest}")
                     return latest
                 else:
                     logger.warning("Nenhuma pasta YYYY-MM encontrada, usando fallback")
-                    return "2026-03"
+                    return fallback
 
         except Exception as e:
             logger.error(f"Erro ao descobrir pasta mais recente: {e}")
-            return "2026-03"  # Fallback
+            return fallback
 
     async def _is_valid_zip_header(self, file_path: Path) -> bool:
         if not file_path.exists() or file_path.stat().st_size < 4:
@@ -105,6 +106,17 @@ class AsyncDownloader:
                 metrics.record_file(stage="discovery", status="error")
                 return []
 
+    async def _get_remote_size(self, session: aiohttp.ClientSession, url: str, auth) -> Optional[int]:
+        """Retorna o Content-Length do arquivo remoto via HEAD request."""
+        try:
+            async with session.head(url, auth=auth, timeout=30) as resp:
+                if resp.status == 200:
+                    content_length = resp.headers.get("Content-Length")
+                    return int(content_length) if content_length else None
+        except Exception:
+            pass
+        return None
+
     async def download_task(self, session: aiohttp.ClientSession, filename: str) -> Optional[Path]:
         async with self.semaphore:
             target_path = self.save_path / filename
@@ -112,10 +124,20 @@ class AsyncDownloader:
             auth = aiohttp.BasicAuth(self.share_token, "")
 
             if target_path.exists() and await self._is_valid_zip_header(target_path):
-                logger.info(f"Ja existe: {filename}")
-                # 'skipped' é um status válido para o seu contador de arquivos
-                metrics.record_file(stage="download", status="skipped")
-                return target_path
+                remote_size = await self._get_remote_size(session, url, auth)
+                local_size = target_path.stat().st_size
+
+                if remote_size is None or remote_size == local_size:
+                    logger.info(f"Ja existe: {filename}")
+                    metrics.record_file(stage="download", status="skipped")
+                    return target_path
+
+                logger.info(f"Arquivo atualizado no servidor ({local_size} -> {remote_size} bytes): {filename}")
+                # Apaga o parquet correspondente para forçar re-transformação
+                parquet_path = self.save_path.parent / "silver_parquet" / filename.replace(".zip", ".parquet")
+                if parquet_path.exists():
+                    parquet_path.unlink()
+                    logger.info(f"Parquet invalidado: {parquet_path.name}")
 
             logger.info(f"Baixando: {filename}")
 
@@ -152,11 +174,14 @@ class AsyncDownloader:
         self.save_path.mkdir(parents=True, exist_ok=True)
         with metrics.track_duration(stage="pipeline_extraction"):
             async with aiohttp.ClientSession() as session:
-                # Se RECEITA_TARGET_DIR não estiver no .env, descobre automaticamente
-                if not os.getenv("RECEITA_TARGET_DIR"):
-                    logger.info("RECEITA_TARGET_DIR não configurado, descobrindo automaticamente...")
-                    self.target_dir = await self._discover_latest_folder(session)
-                
+                # Sempre descobre a pasta mais recente via PROPFIND.
+                # RECEITA_TARGET_DIR no .env serve apenas como fallback se a descoberta falhar.
+                logger.info("Verificando pasta mais recente na Receita Federal...")
+                latest = await self._discover_latest_folder(session)
+                if latest != self.target_dir:
+                    logger.info(f"Nova pasta detectada: {latest} (anterior: {self.target_dir})")
+                self.target_dir = latest
+
                 logger.info(f"Usando pasta: {self.target_dir}")
                 
                 file_list = await self._discover_via_propfind(session)

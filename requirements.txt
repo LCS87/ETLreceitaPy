@@ -26,5 +26,9 @@ black>=23.7.0
 flake8>=6.1.0
 mypy>=1.5.0
 
+# Dashboard
+flask>=3.0.0
+flask-cors>=4.0.0
+
 # Documentation
 pyyaml>=6.0.1

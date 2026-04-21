@@ -4,7 +4,7 @@
 scrape_configs:
   - job_name: "python_elt"
     static_configs:
-      - targets: ["host.docker.internal:8000"] # Pipeline rodando no host Windows
+      - targets: ["elt_pipeline_worker:8000"]
 
   - job_name: "node"
     static_configs:

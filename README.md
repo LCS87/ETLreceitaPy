@@ -34,6 +34,27 @@ Volume processado: ~70 milhões de estabelecimentos, ~45 milhões de empresas, ~
 
 ---
 
+## 📊 Dashboard Analytics em Destaque
+
+O projeto agora conta com um dashboard interativo (com **Modo Escuro** e **Filtros por Região**), para visualização assertiva da inteligência comercial de Banda Larga e Telefonia extraída.
+
+### KPIs e Evolução Mensal
+![Visão Geral KPIs e Gráficos](assets/tela01.png)
+
+### Distribuição Geográfica e Tipos de Empresa
+![Mapa de Calor e Distribuição](assets/tela02.png)
+
+### Análise de Mercado por Estado (%)
+![Detalhes por Estado Heatmap](assets/tela03.png)
+
+### Potencial Comercial de Vendas (Banda Larga e Telefonia)
+![Potencial de Vendas e Crescimento B2B](assets/tela04.png)
+
+### Dados Detalhados por Estado
+![Tabela de Dados Consolidados](assets/tela05.png)
+
+---
+
 ## Stack de Tecnologias
 
 ### Linguagem e Runtime

@@ -690,6 +690,7 @@ Testes específicos:
 ```bash
 py -m pytest -q tests/unit/test_phone_vectorized.py
 py -m pytest -q tests/test_refactored_components.py
+py -m pytest -q tests/integration/   # exige PostgreSQL populado
 ```
 
 Os testes de verificação do Grafana/Prometheus são pulados automaticamente

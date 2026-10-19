@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 
-from src.utils.phone_processor import phone_processor
+from src.utils.phone_processor_vectorized import PhoneProcessorVectorized
 from src.utils.env_loader import config
 
 
@@ -40,7 +40,7 @@ class BaselineBenchmark:
         start_time = time.time()
         start_memory = psutil.Process().memory_info().rss / (1024**2)  # MB
         
-        result_df = phone_processor.aplicar_ao_dataframe(df.copy())
+        result_df = PhoneProcessorVectorized().process_batch(df.copy())
         
         end_time = time.time()
         end_memory = psutil.Process().memory_info().rss / (1024**2)  # MB
@@ -72,8 +72,8 @@ class BaselineBenchmark:
             print("  ⚠️  No test files found, skipping...")
             return
         
-        from src.transform.parquet_engine import ParquetProcessor
-        processor = ParquetProcessor(raw_path=config.RAW_DIR, silver_path=config.SILVER_DIR)
+        from src.transform.optimized_parquet_processor import OptimizedParquetProcessor
+        processor = OptimizedParquetProcessor(raw_path=config.RAW_DIR, silver_path=config.SILVER_DIR)
         
         start_time = time.time()
         start_memory = psutil.Process().memory_info().rss / (1024**2)

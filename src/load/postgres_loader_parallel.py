@@ -6,7 +6,7 @@ import os
 import io
 import pandas as pd
 import pyarrow.parquet as pq
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, Engine
 from pathlib import Path
 from typing import List, Dict
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -19,7 +19,7 @@ from src.monitoring.prometheus_stats import metrics
 class PostgresLoaderParallel:
     """Loader com processamento paralelo de arquivos"""
     
-    def __init__(self, db_config: str = None, max_workers: int = None):
+    def __init__(self, db_config: str = None, max_workers: int = None) -> None:
         self.db_config = db_config or config.DATABASE_URL
         self.max_workers = max_workers or max(os.cpu_count() - 1, 1)
         self.engine = create_engine(
@@ -36,7 +36,7 @@ class PostgresLoaderParallel:
             self.run_load_pipeline(silver_path or config.SILVER_DIR)
             self.create_optimization_indexes()
     
-    def run_load_pipeline(self, silver_path: Path):
+    def run_load_pipeline(self, silver_path: Path) -> None:
         """Distribui arquivos entre workers"""
         from src.monitoring.prometheus_stats import metrics
         
@@ -93,7 +93,7 @@ class PostgresLoaderParallel:
         return {'file': file_path.name, 'rows': total_rows}
 
     @staticmethod
-    def _execute_copy_static(df, table_name, engine):
+    def _execute_copy_static(df: pd.DataFrame, table_name: str, engine: Engine) -> None:
         """Executa COPY command"""
         raw_conn = engine.raw_connection()
         try:
@@ -124,7 +124,7 @@ class PostgresLoaderParallel:
         finally:
             raw_conn.close()
     
-    def create_optimization_indexes(self):
+    def create_optimization_indexes(self) -> None:
         """Cria índices após carga"""
         logger.info("--- Criando Índices de Performance ---")
         with metrics.track_duration(stage="postgres_indexes"):

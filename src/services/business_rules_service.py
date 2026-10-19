@@ -3,8 +3,11 @@ Business rules com injeção de dependência.
 Implementa Pattern dos serviços desacoplados e regras oficiais da Receita.
 """
 
+import re
 from typing import Protocol, Optional
 import pandas as pd
+
+_EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
 class BusinessRulesService(Protocol):
@@ -69,15 +72,15 @@ class BusinessRulesServiceImpl(BusinessRulesService):
 
     def validate_email(self, email: Optional[str]) -> Optional[str]:
         """
-        Remove emails que parecem ser de contadores/escritórios.
+        Valida formato de email e remove emails que parecem ser de contadores/escritórios.
         """
         if not email or pd.isna(email):
             return None
 
         email_lower = str(email).lower().strip()
 
-        # Validação básica
-        if '@' not in email_lower or '.' not in email_lower:
+        # Validação robusta de formato
+        if not _EMAIL_RE.match(email_lower):
             return None
 
         # Blacklist de palavras contábeis para evitar leads frios

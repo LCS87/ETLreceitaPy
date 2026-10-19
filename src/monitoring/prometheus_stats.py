@@ -2,10 +2,12 @@ import platform
 import time
 import threading
 import psutil
+from types import TracebackType
+from typing import Any, ContextManager, Optional, Type
 from prometheus_client import Counter, Histogram, Summary, Gauge, start_http_server
 
 class MetricsCollector:
-    def __init__(self, port=8000):
+    def __init__(self, port: int = 8000) -> None:
         self.hostname = platform.node()
 
         # --- MÉTRICAS DE NEGÓCIO (Existentes) ---
@@ -102,16 +104,16 @@ class MetricsCollector:
         except Exception as e:
             print(f"️ Servidor de métricas já ativo ou erro: {e}")
 
-    def _initialize_metrics(self):
+    def _initialize_metrics(self) -> None:
         # Inicializa labels comuns para evitar que venham vazias no Prometheus
         stages = ['download', 'transform', 'postgres', 'export', 'discovery']
         for stage in stages:
             self.processing_time_gauge.labels(stage=stage, host=self.hostname).set(0)
 
-    def _start_hardware_monitor(self):
+    def _start_hardware_monitor(self) -> None:
         """Thread para atualizar CPU/RAM/DISCO corrigida."""
 
-        def monitor():
+        def monitor() -> None:
             while True:
                 try:
                     # CORREÇÃO: O nome correto é cpu_percent
@@ -122,11 +124,17 @@ class MetricsCollector:
                     self.ram_usage.labels(host=self.hostname).set(ram.percent)
                     self.ram_available.labels(host=self.hostname).set(ram.available / (1024 * 1024))
 
-                    # Tenta ler o disco (C: no Windows geralmente é a raiz)
+                    # Tenta ler o disco — cross-platform (item 5.6)
                     try:
-                        disk = psutil.disk_usage('C:')
-                        self.disk_usage.labels(host=self.hostname, partition='C').set(disk.percent)
-                    except:
+                        if platform.system() == 'Windows':
+                            disk_path = 'C:\\'
+                            partition_label = 'C'
+                        else:
+                            disk_path = '/'
+                            partition_label = 'root'
+                        disk = psutil.disk_usage(disk_path)
+                        self.disk_usage.labels(host=self.hostname, partition=partition_label).set(disk.percent)
+                    except Exception:
                         pass
 
                 except Exception as e:
@@ -138,18 +146,23 @@ class MetricsCollector:
         thread.start()
 
     # --- MÉTODOS DE TRACKING (Mantidos) ---
-    def track_duration(self, stage):
+    def track_duration(self, stage: str) -> ContextManager[Any]:
         class TimerContext:
-            def __init__(self, collector, stage):
+            def __init__(self, collector: "MetricsCollector", stage: str) -> None:
                 self.collector = collector
                 self.stage = stage
                 self.start_time = None
 
-            def __enter__(self):
+            def __enter__(self) -> "TimerContext":
                 self.start_time = time.time()
                 return self
 
-            def __exit__(self, exc_type, exc_val, exc_tb):
+            def __exit__(
+                self,
+                exc_type: Optional[Type[BaseException]],
+                exc_val: Optional[BaseException],
+                exc_tb: Optional[TracebackType],
+            ) -> None:
                 duration = time.time() - self.start_time
                 self.collector.processing_time.labels(stage=self.stage, host=self.collector.hostname).observe(duration)
                 self.collector.processing_time_gauge.labels(stage=self.stage, host=self.collector.hostname).set(
@@ -157,35 +170,35 @@ class MetricsCollector:
 
         return TimerContext(self, stage)
 
-    def record_file(self, stage, status="success"):
+    def record_file(self, stage: str, status: str = "success") -> None:
         self.files_processed.labels(stage=stage, status=status, host=self.hostname).inc()
 
-    def record_rows(self, table_name, count):
+    def record_rows(self, table_name: str, count: int) -> None:
         self.rows_inserted.labels(table_name=table_name, host=self.hostname).inc(count)
 
     # --- MÉTODOS DE MÉTRICAS DE OTIMIZAÇÃO (Task 9.1) ---
-    def record_phone_batch(self, batch_size, duration):
+    def record_phone_batch(self, batch_size: int, duration: float) -> None:
         """Registra processamento de batch de telefonia"""
         self.phone_processing_batch_size.labels(host=self.hostname).set(batch_size)
         self.phone_processing_duration.labels(host=self.hostname).observe(duration)
 
-    def record_enrichment_throughput(self, rows_per_second):
+    def record_enrichment_throughput(self, rows_per_second: float) -> None:
         """Registra throughput de enriquecimento Parquet"""
         self.parquet_enrichment_throughput.labels(host=self.hostname).set(rows_per_second)
 
-    def record_export_query(self, query_type, duration):
+    def record_export_query(self, query_type: str, duration: float) -> None:
         """Registra duração de query de exportação"""
         self.export_query_duration.labels(query_type=query_type, host=self.hostname).observe(duration)
 
-    def record_parallel_workers(self, worker_count):
+    def record_parallel_workers(self, worker_count: int) -> None:
         """Registra número de workers paralelos ativos"""
         self.parallel_workers_active.labels(host=self.hostname).set(worker_count)
 
-    def record_index_usage(self, index_name):
+    def record_index_usage(self, index_name: str) -> None:
         """Registra uso de índice do banco de dados"""
         self.database_index_usage.labels(index_name=index_name, host=self.hostname).inc()
 
-    def record_volume(self, stage, size_mb):
+    def record_volume(self, stage: str, size_mb: float) -> None:
         """Registra volume de dados processados em MB"""
         self.data_volume.labels(stage=stage, host=self.hostname).inc(size_mb)
 

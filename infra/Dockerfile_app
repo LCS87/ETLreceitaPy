@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # --- A CORREÇÃO ESTÁ AQUI ---
 COPY src/ ./src/
 COPY app_entrypoint.py . 
+COPY run_*.py .
 COPY .env . 
 
 RUN mkdir -p data/raw_zips data/silver_parquet docs/logs data/gold_csv

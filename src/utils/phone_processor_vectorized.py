@@ -9,6 +9,7 @@ import numpy as np
 import phonenumbers
 from phonenumbers import carrier, PhoneNumberFormat, PhoneNumberType
 from typing import Dict, Tuple
+from cachetools import TTLCache
 from src.utils.log_handler import logger
 
 
@@ -18,15 +19,18 @@ class PhoneProcessorVectorized:
     
     Otimizações implementadas:
     1. Vetorização: pandas str.replace() em vez de loops
-    2. Cache: Armazena resultados para DDDs/prefixos repetidos
+    2. Cache com TTL: Armazena resultados para DDDs/prefixos repetidos com expiração
     3. Regex pré-compilado: Compila patterns uma vez no __init__
     4. Batch processing: Agrupa números similares
     5. Early exit: Valida formato antes de chamar phonenumbers.parse()
     """
     
-    def __init__(self, batch_size: int = 10000):
+    def __init__(self, batch_size: int = 10000, cache_size: int = 500000, cache_ttl: int = 3600) -> None:
         self.batch_size = batch_size
-        self.cache: Dict[str, Tuple[str, str]] = {}
+        # Cache com TTL: expira após 1 hora, máximo 500k entradas
+        self.cache: TTLCache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
+        self.cache_hits = 0
+        self.cache_misses = 0
         self.operadoras_principais = ["VIVO", "CLARO", "TIM", "OI"]
         
         # Mapeamento para consolidar operadoras
@@ -57,7 +61,7 @@ class PhoneProcessorVectorized:
             df: DataFrame com colunas ddd_1 e telefone_1
             
         Returns:
-            DataFrame com colunas adicionais: telefone e operadora
+            DataFrame com colunas adicionais: telefones, telefone e operadora
         """
         import time
         from src.monitoring.prometheus_stats import metrics
@@ -67,6 +71,7 @@ class PhoneProcessorVectorized:
         
         if df.empty:
             df['telefone'] = pd.Series(dtype=str)
+            df['telefones'] = pd.Series(dtype=str)
             df['operadora'] = pd.Series(dtype=str)
             return df
         
@@ -98,6 +103,7 @@ class PhoneProcessorVectorized:
         
         # Remove colunas temporárias
         df.drop(columns=['raw_number', 'is_valid_length'], inplace=True, errors='ignore')
+        df['telefones'] = df['telefone']
         
         # Registra métricas (Task 9.2)
         duration = time.time() - start_time
@@ -190,7 +196,7 @@ class PhoneProcessorVectorized:
         # Converte para DataFrame
         return pd.DataFrame(results, columns=['telefone', 'operadora'], index=raw_numbers.index)
     
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """Limpa o cache de resultados"""
         self.cache.clear()
     

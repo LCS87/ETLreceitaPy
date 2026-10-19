@@ -3,6 +3,8 @@ Definição dos Schemas para os dados da Receita Federal.
 Corrigido para incluir a tabela SIMPLES (MEI) e Tabelas Auxiliares.
 """
 
+from typing import List, Optional
+
 # 1. EMPRESAS
 EMPRESAS = {
     "columns": [
@@ -82,7 +84,7 @@ AUXILIARES = {
 }
 
 
-def get_columns_by_filename(filename: str):
+def get_columns_by_filename(filename: str) -> Optional[List[str]]:
     """
     Retorna a lista de colunas baseada no nome do arquivo.
     Funciona para .zip ou .parquet.

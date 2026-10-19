@@ -21,6 +21,13 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_establ_data_atividade ON estabelecim
 WHERE data_inicio_atividade >= '2020-01-01';
 -- Índice para análise geográfica (agregações por município)
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_establ_uf_municipio ON estabelecimentos (uf, municipio);
+-- Índice composto parcial: ativos por UF (filtro mais frequente da interface web)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_establ_uf_ativo ON estabelecimentos (uf, municipio)
+WHERE situacao_cadastral = '02';
+-- Extensão + índices de trigramas para ILIKE '%texto%' em bairro/cidade
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_establ_bairro_trgm ON estabelecimentos USING GIN (bairro gin_trgm_ops);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_municipios_descricao_trgm ON municipios USING GIN (descricao gin_trgm_ops);
 -- Índice na tabela empresas para join
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_emp_cnpj_basico ON empresas (cnpj_basico);
 -- Índice na tabela socios para join

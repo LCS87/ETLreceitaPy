@@ -59,19 +59,40 @@ class ELTPipeline:
         extractor: DataExtractor,
         transformer: DataTransformer,
         loader: DataLoader
-    ):
+    ) -> None:
         self.extractor = extractor
         self.transformer = transformer
         self.loader = loader
     
     async def run(self) -> None:
-        """Executa o pipeline completo."""
-        # 1. Extração
-        files = await self.extractor.extract()
-        
-        # 2. Transformação
-        if files:
-            self.transformer.transform(files)
-        
-        # 3. Carga
-        await self.loader.load()
+        """Executa o pipeline completo com tratamento de erros."""
+        from src.core.interfaces import FatalError, RetryableError
+        from src.monitoring.prometheus_stats import metrics
+        from src.utils.log_handler import logger
+        try:
+            with metrics.track_duration(stage="pipeline_total"):
+                logger.info("=== ETAPA 1: EXTRAÇÃO ===")
+                files = await self.extractor.extract()
+                if not files:
+                    raise FatalError("Nenhum arquivo extraído — abortando pipeline")
+                logger.info(f" {len(files)} arquivos extraídos")
+
+                logger.info("=== ETAPA 2: TRANSFORMAÇÃO ===")
+                self.transformer.transform(files)
+
+                logger.info("=== ETAPA 3: CARGA ===")
+                await self.loader.load()
+            logger.info(" Pipeline concluído com sucesso")
+            metrics.record_file(stage="pipeline", status="success")
+        except FatalError as e:
+            logger.error(f" Erro fatal no pipeline: {e}")
+            metrics.record_file(stage="pipeline", status="fatal_error")
+            raise
+        except RetryableError as e:
+            logger.warning(f" Erro retentável: {e}")
+            metrics.record_file(stage="pipeline", status="retryable_error")
+            raise
+        except Exception as e:
+            logger.error(f" Erro inesperado no pipeline: {e}", exc_info=True)
+            metrics.record_file(stage="pipeline", status="error")
+            raise

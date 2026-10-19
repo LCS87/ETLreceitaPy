@@ -8,7 +8,7 @@ from urllib.parse import quote_plus
 
 
 class Config:
-    def __init__(self):
+    def __init__(self) -> None:
         # 1. Localiza e carrega o arquivo .env
         env_path = Path(__file__).parent.parent.parent / '.env'
         load_dotenv(dotenv_path=env_path)
@@ -57,11 +57,11 @@ class Config:
         self.DB_NAME = os.getenv("DB_NAME", "receita_db")
 
     @property
-    def DATABASE_URL(self):
+    def DATABASE_URL(self) -> str:
         password_safe = quote_plus(self.DB_PASS)
         return f"postgresql://{self.DB_USER}:{password_safe}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
-    def validate(self):
+    def validate(self) -> None:
         for folder in [self.RAW_DIR, self.SILVER_DIR, self.LOG_DIR]:
             folder.mkdir(parents=True, exist_ok=True)
         if platform.system() == "Windows":

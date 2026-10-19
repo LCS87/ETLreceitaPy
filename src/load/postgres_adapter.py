@@ -1,15 +1,18 @@
+import asyncio
 import io
 import pandas as pd
 import pyarrow.parquet as pq
 from sqlalchemy import create_engine, text
 from pathlib import Path
+from typing import Optional, Union
 from src.utils.log_handler import logger
 from src.utils.env_loader import config
 from src.monitoring.prometheus_stats import metrics
+from src.database.indexes import generate_all_index_sql
 
 
 class PostgresLoader:
-    def __init__(self, db_config=None):
+    def __init__(self, db_config: Optional[str] = None) -> None:
         self.url = db_config if db_config else config.DATABASE_URL
         self.engine = create_engine(
             self.url,
@@ -23,10 +26,10 @@ class PostgresLoader:
         logger.info("--- Iniciando Carga no PostgreSQL ---")
         # Corrigido: track_duration usa apenas a label 'stage'
         with metrics.track_duration(stage="postgres_load_total"):
-            self.run_load_pipeline(silver_path=config.SILVER_DIR)
-            self.create_optimization_indexes()
+            await asyncio.to_thread(self.run_load_pipeline, config.SILVER_DIR)
+            await asyncio.to_thread(self.create_optimization_indexes)
 
-    def _create_table_from_df(self, df, table_name):
+    def _create_table_from_df(self, df: pd.DataFrame, table_name: str) -> None:
         try:
             with metrics.track_duration(stage="create_table"):
                 df.head(0).to_sql(table_name, self.engine, if_exists='append', index=False)
@@ -35,7 +38,7 @@ class PostgresLoader:
         except Exception as e:
             logger.debug(f"Aviso ao verificar schema de '{table_name}': {e}")
 
-    def fast_load_parquet(self, parquet_path, table_name):
+    def fast_load_parquet(self, parquet_path: Path, table_name: str) -> None:
         logger.info(f"--- Bulk Load: {parquet_path.name} -> {table_name} ---")
 
         # Corrigido: Usando record_file para garantir as labels corretas
@@ -76,7 +79,7 @@ class PostgresLoader:
                 metrics.record_file(stage="postgres", status="error")
                 raise e
 
-    def _execute_copy(self, df, table_name):
+    def _execute_copy(self, df: pd.DataFrame, table_name: str) -> None:
         # Obtemos a conexão bruta do engine
         raw_conn = self.engine.raw_connection()
         try:
@@ -88,8 +91,8 @@ class PostgresLoader:
             try:
                 # 1. PEGAR AS COLUNAS REAIS DA TABELA
                 cursor.execute(
-                    f"SELECT column_name FROM information_schema.columns "
-                    f"WHERE table_name = '{table_name.lower()}' ORDER BY ordinal_position"
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = %s ORDER BY ordinal_position",
+                    (table_name.lower(),)
                 )
                 db_columns = [row[0] for row in cursor.fetchall()]
 
@@ -125,7 +128,7 @@ class PostgresLoader:
             # IMPORTANTE: Fechar a raw_connection para devolver ao pool do SQLAlchemy
             raw_conn.close()
 
-    def run_load_pipeline(self, silver_path):
+    def run_load_pipeline(self, silver_path: Union[str, Path]) -> None:
         p = Path(silver_path)
         parquet_files = sorted([f for f in p.glob("*.parquet") if f.is_file()])
         logger.info(f"Encontrados {len(parquet_files)} arquivos Parquet para carga")
@@ -156,18 +159,11 @@ class PostgresLoader:
 
             self.fast_load_parquet(file, table_name)
 
-    def create_optimization_indexes(self):
+    def create_optimization_indexes(self) -> None:
         logger.info("--- Criando Índices de Performance ---")
         with metrics.track_duration(stage="postgres_indexes"):
-            queries = [
-                "CREATE INDEX IF NOT EXISTS idx_establ_uf ON estabelecimentos (uf);",
-                "CREATE INDEX IF NOT EXISTS idx_establ_cnpj ON estabelecimentos (cnpj_basico, cnpj_ordem, cnpj_dv);",
-                "CREATE INDEX IF NOT EXISTS idx_emp_cnpj_basico ON empresas (cnpj_basico);",
-                "CREATE INDEX IF NOT EXISTS idx_soc_cnpj_basico ON socios (cnpj_basico);"
-            ]
-
             with self.engine.connect() as conn:
-                for sql in queries:
+                for sql in generate_all_index_sql():
                     with metrics.track_duration(stage="postgres_create_index"):
                         try:
                             conn.execute(text(sql))

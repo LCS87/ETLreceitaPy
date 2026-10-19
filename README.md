@@ -15,6 +15,9 @@ Pipeline de engenharia de dados para extração, transformação e carga dos dad
 - [Executando com Docker](#executando-com-docker)
 - [Executando sem Docker (Local)](#executando-sem-docker-local)
 - [Exportação de Leads](#exportação-de-leads)
+- [Interface Web e API](#interface-web-e-api)
+- [Segurança e Confiabilidade](#segurança-e-confiabilidade)
+- [Testes](#testes)
 - [Monitoramento](#monitoramento)
 - [Variáveis de Ambiente](#variáveis-de-ambiente)
 - [Troubleshooting](#troubleshooting)
@@ -28,9 +31,25 @@ O pipeline processa os arquivos públicos disponibilizados pela Receita Federal 
 - **Tipo de empresa:** MEI, ME, LTDA
 - **Operadora de telefonia:** CLARO, TIM, VIVO, OI, FIXO, etc.
 - **Período:** anual, trimestral e mensal
+- **Década:** anos anteriores a 2020 agrupados por década
+- **Localização:** filtros e exportação por cidade e bairro
 - **Estado:** AL, BA, CE, MA, PB, PE, PI, RN, SE
 
 Volume processado: ~70 milhões de estabelecimentos, ~45 milhões de empresas, ~47 milhões de registros Simples Nacional.
+
+### Período mais recente da Receita Federal
+
+O downloader consulta o WebDAV da Receita Federal via `PROPFIND` e tenta
+selecionar automaticamente a pasta `AAAA-MM` mais recente. A variável
+`RECEITA_TARGET_DIR` funciona como fallback quando a descoberta não retorna
+nenhuma pasta ou o serviço está indisponível.
+
+```dotenv
+# Deixe configurado como fallback ou ajuste para um período específico
+RECEITA_TARGET_DIR=2026-03
+```
+
+O período selecionado aparece nos logs antes do início dos downloads.
 
 ---
 
@@ -124,10 +143,11 @@ Portal Receita Federal
         |
         v  PostgreSQL (receita_db)
         |
-[4. EXPORT]  nordeste_exporter_optimized.py
-  Query SQL com LEFT JOIN (empresas + simples)
-  Classificação MEI/ME/LTDA
-  Segmentação por UF, operadora, ano/trimestre/mês
+[4. EXPORT]  exportadores em src/exports/
+  Exportação legada compatível em exports_final/
+  Exportação temporal com década em exports_discadora/
+  Exportação por cidade e bairro
+  Exportação agregada para BI e LTDA/MEI
         |
         v  data/silver_parquet/exports_final/
 ```
@@ -174,7 +194,20 @@ ETLreceitaPy/
 │   ├── load/
 │   │   └── postgres_adapter.py         # Bulk load via PostgreSQL COPY
 │   ├── exports/
-│   │   └── nordeste_exporter_optimized.py  # Exportação de leads CSV
+│   │   ├── nordeste_exporter_optimized.py  # Exportação legada
+│   │   ├── time_based_exporter.py          # Ano/trimestre/mês/década
+│   │   ├── city_neighborhood_exporter.py   # Cidade e bairro
+│   │   ├── bi_exporter.py                   # Cubo agregado para BI
+│   │   ├── leads_anuais_exporter.py        # Exportação anual 2010-2020
+│   │   ├── temp_nordeste_exporter.py       # LTDA/MEI por UF
+│   │   ├── csv_format.py                    # Contrato comum de CSV
+│   │   └── period_utils.py                  # Regra de década/período
+│   ├── api/
+│   │   ├── main.py                          # API REST FastAPI
+│   │   └── web_interface.py                  # Interface Flask
+│   ├── services/
+│   │   ├── query_service.py                 # Queries com whitelist
+│   │   └── export_service.py                # Exportação em chunks
 │   ├── monitoring/
 │   │   └── prometheus_stats.py         # Métricas Prometheus
 │   └── utils/
@@ -191,10 +224,15 @@ ETLreceitaPy/
 └── data/
     ├── raw_zips/                       # Arquivos .zip baixados
     └── silver_parquet/                 # Parquet processados + exports CSV
-        └── exports_final/
-            ├── 1_Processo_Anual/
-            ├── 2_Processo_Trimestral/
-            └── 3_Processo_Mensal/
+        ├── exports_final/                    # Exportador legado
+        ├── exports_discadora/                # Exportadores migrados
+        │   ├── anual/
+        │   ├── trimestral/
+        │   ├── mensal/
+        │   ├── decada/
+        │   └── por_cidade/
+        ├── exports_bi/
+        └── exports_temp_nordeste/
 ```
 
 ---
@@ -393,7 +431,52 @@ Se os dados já estão no banco e você quer apenas re-exportar os CSVs:
 py run_export.py
 ```
 
-Tempo estimado: ~3 minutos para 1,8 milhão de registros.
+### Novas exportacoes e interface
+
+Com o banco ja carregado, os comandos abaixo executam as funcionalidades
+portadas da outra maquina:
+
+```bash
+# Anual/trimestral/mensal e decada (anos anteriores a 2020)
+py run_export_completo.py
+
+# Interface Flask para preview e exportacao CSV/XLSX
+py run_web_interface.py  # Porta padrão: 5001 (alterada de 5000)
+
+# Exportacao anual 2010-2020
+py run_leads_anuais_export.py
+
+# Exportacao temporaria LTDA/MEI
+py run_temp_nordeste_export.py
+```
+
+Para carregar somente os arquivos Parquet já processados:
+
+```bash
+py run_load_only.py
+```
+
+Os CSVs novos usam `;` e `utf-8-sig`. A interface fica em
+`http://localhost:5000` e aceita `WEB_INTERFACE_PORT` para alterar a porta.
+
+> A exportação por cidade/bairro é executada pelo `run_export_completo.py`.
+> O `app_entrypoint.py` mantém o fluxo legado de exportação para evitar alterar
+> o comportamento do pipeline principal sem uma execução de validação no banco.
+
+Saidas adicionais:
+
+```text
+data/silver_parquet/exports_discadora/anual/AAAA/UF/
+data/silver_parquet/exports_discadora/trimestral/AAAA_QN/UF/
+data/silver_parquet/exports_discadora/mensal/AAAA_MM/UF/
+data/silver_parquet/exports_discadora/decada/decada_AAAA/UF/
+data/silver_parquet/exports_discadora/por_cidade/cidades/AAAA/
+data/silver_parquet/exports_discadora/por_cidade/bairros/AAAA/
+```
+
+O exportador legado usa `exports_final/`. Os exportadores migrados usam
+`exports_discadora/`, `exports_bi/`, `exports_leads_anuais/` e
+`exports_temp_nordeste/`.
 
 ### Monitoramento sem Docker
 
@@ -403,7 +486,7 @@ O pipeline expõe métricas Prometheus na porta 8000 automaticamente. Para visua
 
 ## Exportação de Leads
 
-### Estrutura dos arquivos gerados
+### Exportador legado
 
 ```
 data/silver_parquet/exports_final/
@@ -448,6 +531,178 @@ cnpj_completo | razao_social | endereco_completo | email | ano | telefone | oper
 
 Separador: `|` (pipe)
 Encoding: UTF-8 BOM (compatível com Excel)
+
+### Exportadores migrados
+
+O exportador temporal classifica os anos assim:
+
+- `2020` até o ano atual: exportação detalhada por ano, trimestre e mês.
+- Anos anteriores a `2020`: agrupamento em `decada/decada_AAAA/`.
+
+Estrutura principal:
+
+```text
+data/silver_parquet/exports_discadora/
+├── anual/AAAA/UF/leads_uf.csv
+├── trimestral/AAAA_QN/UF/leads_uf.csv
+├── mensal/AAAA_MM/UF/leads_uf.csv
+├── decada/decada_AAAA/UF/leads_uf.csv
+└── por_cidade/
+        ├── cidades/AAAA/cidade_nome.csv
+        └── bairros/AAAA/bairro_nome_cidade.csv
+```
+
+Os novos CSVs usam separador `;`, encoding `utf-8-sig`, aspas mínimas e
+sanitização de quebras de linha. Os filtros de cidade e bairro aceitam busca
+parcial, UF e período inicial.
+
+### Exportações disponíveis
+
+| Componente | Comando | Saída |
+|---|---|---|
+| Temporal | `py run_export_completo.py` | Ano, trimestre, mês e década |
+| Cidade/bairro | `py run_export_completo.py` | Arquivos agrupados por localização |
+| Anual | `py run_leads_anuais_export.py` | Nordeste por ano, UF e consolidado |
+| LTDA/MEI | `py run_temp_nordeste_export.py` | Categorias por UF |
+| BI | API Python `bi_exporter` | Resumos agregados por período |
+
+---
+
+## Interface Web e API
+
+### Interface Flask
+
+Inicie a interface com:
+
+```bash
+py run_web_interface.py
+```
+
+Acesse `http://localhost:5000`. A interface oferece seleção de colunas,
+filtros por UF, cidade, bairro e categoria, preview dos resultados e download
+em CSV ou XLSX.
+
+O endpoint `/api/columns` lista as colunas disponíveis. Os endpoints
+`/api/preview` e `/api/export` recebem JSON com `columns`, `filters` e, na
+exportação, `format` (`csv` ou `xlsx`). As tabelas e colunas são validadas por
+whitelist antes da consulta.
+
+Exemplo de payload:
+
+```json
+{
+        "columns": ["cnpj_completo", "razao_social", "cidade", "bairro", "uf"],
+        "filters": {
+                "uf": "AL",
+                "cidade": "Maceió",
+                "bairro": "Centro",
+                "categoria": "MEI"
+        },
+        "format": "csv"
+}
+```
+
+### API REST FastAPI
+
+Para iniciar a API REST:
+
+```bash
+uvicorn src.api.main:app --host 0.0.0.0 --port 8001
+```
+
+Documentação Swagger: `http://localhost:8001/docs`.
+
+Endpoints principais:
+
+- `GET /api/v1/health`
+- `GET /api/v1/leads`
+- `GET /api/v1/leads/{cnpj_basico}`
+- `POST /api/v1/leads/buscar`
+- `GET /api/v1/stats/ufs`
+- `GET /api/v1/stats/operadoras`
+
+### Autenticação (API Key e JWT)
+
+A API aceita **duas formas** de autenticação (combinadas):
+
+1. **API Key** — header `X-API-Key` com o valor de `API_KEY` do `.env`.
+   Se `API_KEY` estiver vazio, a auth fica desabilitada (modo dev).
+2. **JWT (Bearer)** — obtenha um token via `/api/v1/auth/login` e envie
+   `Authorization: Bearer <token>`.
+
+Endpoints de autenticação:
+
+- `POST /api/v1/auth/login` — recebe `{ "username", "password" }`, retorna
+  `{ "access_token", "token_type", "expires_in" }`.
+- `GET /api/v1/auth/me` — retorna a identidade do token atual.
+
+Criando usuários (arquivo `config/users.json`, hash bcrypt):
+
+```bash
+# Interativo (pede senha)
+python -m src.api.auth create admin --role admin --tenant meu-tenant
+
+# O arquivo é configurável via USERS_FILE (útil para testes)
+USERS_FILE=/tmp/users.json python -m src.api.auth create leo
+```
+
+Exemplo de login:
+
+```bash
+curl -X POST http://localhost:8001/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "sua-senha"}'
+```
+
+> A interface e a API pressupõem que o PostgreSQL já esteja populado.
+
+---
+
+## Segurança e Confiabilidade
+
+Melhorias implementadas na revisão de 2026-10:
+
+| Área | Implementação |
+|---|---|
+| SQL Injection | Validação de identificadores SQL (`^[a-zA-Z_][a-zA-Z0-9_]*$`) nos filtros do `QueryService` |
+| Path Traversal | Sanitização de nomes de arquivo no `ExportService` (`_validate_filename`) |
+| Rate limiting | Middleware de 100 req/min por IP na API (`RateLimitMiddleware`) |
+| CORS | Origens restritas via variável `ALLOWED_ORIGINS` |
+| Autenticação | Chave de API (`verify_api_key`) nos endpoints de dados |
+| Timeouts | Download limitado a 5 min (antes 15 min) |
+| Cache | Cache TTL de telefonia (500k entradas, 1h) com contadores hit/miss |
+| Logs | Logs estruturados JSON (`pipeline.json.log`) |
+| Health | `/api/v1/health/detailed` (banco, disco, memória) |
+| CI/CD | GitHub Actions (`.github/workflows/ci.yml`): testes + checks estáticos |
+
+---
+
+## Testes
+
+Execute os testes no ambiente virtual:
+
+```bash
+py -m pytest -q
+```
+
+Testes específicos:
+
+```bash
+py -m pytest -q tests/unit/test_phone_vectorized.py
+py -m pytest -q tests/test_refactored_components.py
+```
+
+Os testes de verificação do Grafana/Prometheus são pulados automaticamente
+quando a stack de monitoramento não está acessível.
+
+### Estado conhecido
+
+- 59 testes passando localmente (7 de verificação pulados sem Docker).
+- A validação completa de exportação exige PostgreSQL populado com as tabelas
+        `estabelecimentos`, `empresas`, `simples` e `municipios`.
+- Autenticação por chave de API e rate limiting já implementados; ainda pendente
+        autenticação JWT e proteção de segredos antes de expor a interface fora
+        da rede local.
 
 ---
 
@@ -508,6 +763,11 @@ POSTGRES_MAX_OVERFLOW=32   # conexões extras além do pool
 
 # Monitoramento
 PROMETHEUS_PORT=8000       # porta do endpoint /metrics
+
+# Segurança
+ALLOWED_ORIGINS=https://seu-dominio.com   # origens CORS permitidas (separadas por vírgula)
+API_KEY=sua-chave-api      # chave exigida no header X-API-Key (vazio = modo dev, sem auth)
+SECRET_KEY=sua-chave-jwt   # chave de assinatura JWT (obrigatória em produção)
 
 # Receita Federal
 RECEITA_BASE_URL=https://arquivos.receitafederal.gov.br/index.php/s/YggdBLfdninEJX9
@@ -617,3 +877,22 @@ Os dados são públicos e disponibilizados pela Receita Federal do Brasil:
 - Atualização: mensal
 - Formato original: CSV comprimido em ZIP
 - Licença: Dados Abertos (Lei de Acesso à Informação)
+
+---
+
+## Status das Correções (2026-10-19)
+
+Aplicadas: SQL Injection, Path Traversal, rate limiting (100 req/min por IP),
+timeout de download (5 min), configuração do Prometheus (`prom_config.yml`),
+type hints nos services, logs JSON estruturados, cache TTL de telefonia,
+particionamento Parquet por UF integrado ao `transform()`, documentação
+OpenAPI, DAG do Airflow com alertas/retry, health check detalhado, CI/CD
+(GitHub Actions), remoção de código legado (`phone_processor` antigo,
+`parquet_engine`, `parquet_engine_refactored`), migração de `business_rules`
+para `business_rules_service` e atualização do fastapi para 0.146
+(compatível com starlette 1.9 / streamlit).
+
+Pendentes (baixa prioridade): painéis Grafana ampliados e testes de
+integração com PostgreSQL. Autenticação JWT concluída (login, /me, CLI de
+usuários, dependência combinada API Key OU Bearer). Type hints completos em
+todo o `src/` (221 funções anotadas).

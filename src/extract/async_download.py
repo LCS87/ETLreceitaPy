@@ -3,25 +3,47 @@ import aiohttp
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 from src.utils.env_loader import config
 from src.utils.log_handler import logger
 from src.monitoring.prometheus_stats import metrics
 
 class AsyncDownloader:
-    def __init__(self, base_url: Optional[str] = None, save_path: Optional[str] = None, **kwargs):
+    def __init__(self, base_url: Optional[str] = None, save_path: Optional[str] = None, **kwargs: Any) -> None:
         self.share_token = "YggdBLfdninEJX9"
         self.webdav_base = "https://arquivos.receitafederal.gov.br/public.php/webdav"
         self.save_path = Path(save_path) if save_path else config.RAW_DIR
         self.semaphore = asyncio.Semaphore(config.MAX_DOWNLOADS)
-        self.timeout_seconds = 3600
+        self.timeout_seconds = 300  # 5 minutos (reduzido de 15 para evitar travamentos)
+        self.max_retries = 3
+        self.retry_delay = 30
         # Permite configurar via .env ou usa o mais recente
         self.target_dir = os.getenv("RECEITA_TARGET_DIR", "2026-03")
 
+    def _get_last_known_period(self) -> Optional[str]:
+        """Lê o último período bem-sucedido de um arquivo de cache local."""
+        cache_file = self.save_path.parent / ".last_period"
+        if cache_file.exists():
+            try:
+                period = cache_file.read_text(encoding="utf-8").strip()
+                if len(period) == 7 and period[4] == '-':
+                    return period
+            except Exception:
+                pass
+        return None
+
+    def _save_last_known_period(self, period: str) -> None:
+        """Salva o período bem-sucedido em cache local."""
+        cache_file = self.save_path.parent / ".last_period"
+        try:
+            cache_file.write_text(period, encoding="utf-8")
+        except Exception:
+            pass
+
     async def _discover_latest_folder(self, session: aiohttp.ClientSession) -> str:
         """Descobre automaticamente a pasta mais recente (YYYY-MM).
-        Usa RECEITA_TARGET_DIR do .env como fallback se a descoberta falhar."""
-        fallback = os.getenv("RECEITA_TARGET_DIR", "2026-03")
+        Usa cache do último período ou RECEITA_TARGET_DIR como fallback se a descoberta falhar."""
+        fallback = self._get_last_known_period() or os.getenv("RECEITA_TARGET_DIR", "2026-03")
         url = f"{self.webdav_base}/"
         auth = aiohttp.BasicAuth(self.share_token, "")
         headers = {"Depth": "1"}
@@ -30,7 +52,7 @@ class AsyncDownloader:
         try:
             async with session.request("PROPFIND", url, auth=auth, headers=headers) as resp:
                 if resp.status not in [200, 207]:
-                    logger.warning(f"Falha ao listar pastas: Status {resp.status}")
+                    logger.warning(f"Falha ao listar pastas: Status {resp.status}. Usando fallback: {fallback}")
                     return fallback
 
                 xml_content = await resp.text()
@@ -55,14 +77,15 @@ class AsyncDownloader:
 
                 if folders:
                     latest = sorted(folders)[-1]
+                    self._save_last_known_period(latest)
                     logger.info(f"Pasta mais recente encontrada: {latest}")
                     return latest
                 else:
-                    logger.warning("Nenhuma pasta YYYY-MM encontrada, usando fallback")
+                    logger.warning(f"Nenhuma pasta YYYY-MM encontrada, usando fallback: {fallback}")
                     return fallback
 
         except Exception as e:
-            logger.error(f"Erro ao descobrir pasta mais recente: {e}")
+            logger.error(f"Erro ao descobrir pasta mais recente: {e}. Usando fallback: {fallback}")
             return fallback
 
     async def _is_valid_zip_header(self, file_path: Path) -> bool:
@@ -106,7 +129,7 @@ class AsyncDownloader:
                 metrics.record_file(stage="discovery", status="error")
                 return []
 
-    async def _get_remote_size(self, session: aiohttp.ClientSession, url: str, auth) -> Optional[int]:
+    async def _get_remote_size(self, session: aiohttp.ClientSession, url: str, auth: aiohttp.BasicAuth) -> Optional[int]:
         """Retorna o Content-Length do arquivo remoto via HEAD request."""
         try:
             async with session.head(url, auth=auth, timeout=30) as resp:

@@ -3,7 +3,7 @@ Interfaces e Protocolos para o pipeline ELT.
 Implementa Dependency Inversion Principle (DIP) para desacoplar componentes.
 """
 
-from typing import Protocol, List, Any
+from typing import Protocol, List, Any, ContextManager
 from pathlib import Path  # <--- O Path vem daqui!
 
 
@@ -42,7 +42,7 @@ class ChunkNormalizer(Protocol):
 class MetricsCollector(Protocol):
     """Interface para coleta de métricas."""
     
-    def track_duration(self, stage: str):
+    def track_duration(self, stage: str) -> ContextManager[Any]:
         """Context manager para tracking de duração."""
         ...
 

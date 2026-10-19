@@ -4,8 +4,9 @@ Define as tabelas do banco de dados para ORM.
 """
 
 from sqlalchemy import Column, String, Integer, Numeric, DateTime, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, relationship, foreign
+from typing import Any, Dict
+
 
 class Base(DeclarativeBase):
     """Base declarativa para models SQLAlchemy."""
@@ -34,7 +35,7 @@ class Estabelecimento(Base):
     bairro = Column(String(200))
     cep = Column(String(8))
     uf = Column(String(2))
-    codigo_municipio = Column(String(7))
+    codigo_municipio = Column("municipio", String(7))
     nome_cidade_exterior = Column(String(100))
     codigo_pais = Column(String(3))
     
@@ -45,7 +46,7 @@ class Estabelecimento(Base):
     telefone_2 = Column(String(9))
     ddd_fax = Column(String(2))
     telefone_fax = Column(String(9))
-    email = Column(String(200))
+    email = Column("correio_eletronico", String(200))
     
     # Negócio
     data_inicio_atividade = Column(String(8))
@@ -56,11 +57,24 @@ class Estabelecimento(Base):
     situacao_especial = Column(String(2))
     data_situacao_especial = Column(String(8))
     
-    # Campos enriquecidos
-    operadora_telefone = Column(String(50))
+    # Campos enriquecidos (mapeado para coluna real 'operadora' do PostgreSQL)
+    operadora_telefone = Column("operadora", String(50))
     categoria = Column(String(20))
     
-    def to_dict(self):
+    # Relacionamentos ORM
+    empresa = relationship(
+        "Empresa",
+        primaryjoin="foreign(Estabelecimento.cnpj_basico) == Empresa.cnpj_basico",
+        back_populates="estabelecimentos",
+        uselist=False,
+    )
+    socios = relationship(
+        "Socio",
+        primaryjoin="foreign(Socio.cnpj_basico) == Estabelecimento.cnpj_basico",
+        back_populates="estabelecimento",
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
         """Converte para dicionário."""
         return {
             'cnpj_basico': self.cnpj_basico,
@@ -94,7 +108,14 @@ class Empresa(Base):
     porte_empresa = Column(String(2))
     ente_federativo_responsavel = Column(String(20))
     
-    def to_dict(self):
+    # Relacionamentos ORM
+    estabelecimentos = relationship(
+        "Estabelecimento",
+        primaryjoin="foreign(Estabelecimento.cnpj_basico) == Empresa.cnpj_basico",
+        back_populates="empresa",
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
         """Converte para dicionário."""
         return {
             'cnpj_basico': self.cnpj_basico,
@@ -112,7 +133,7 @@ class Socio(Base):
     __tablename__ = "socios"
     
     cnpj_basico = Column(String(8), primary_key=True)
-    identificador_socio = Column(Integer, primary_key=True)
+    identificador_socio = Column(String(2), primary_key=True)
     nome_socio = Column(String(500))
     cnpj_cpf_socio = Column(String(14))
     qualificacao_socio = Column(String(2))
@@ -123,7 +144,15 @@ class Socio(Base):
     qualificacao_representante = Column(String(2))
     faixa_etaria = Column(String(2))
     
-    def to_dict(self):
+    # Relacionamentos ORM
+    estabelecimento = relationship(
+        "Estabelecimento",
+        primaryjoin="foreign(Socio.cnpj_basico) == Estabelecimento.cnpj_basico",
+        back_populates="socios",
+        uselist=False,
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
         """Converte para dicionário."""
         return {
             'cnpj_basico': self.cnpj_basico,

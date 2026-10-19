@@ -16,7 +16,8 @@ class TestPhoneProcessorVectorized:
         processor = PhoneProcessorVectorized(batch_size=5000)
         
         assert processor.batch_size == 5000
-        assert isinstance(processor.cache, dict)
+        from cachetools import TTLCache
+        assert isinstance(processor.cache, TTLCache)
         assert len(processor.cache) == 0
         assert len(processor.operadoras_principais) == 4
         assert 'non_digit' in processor.regex_patterns

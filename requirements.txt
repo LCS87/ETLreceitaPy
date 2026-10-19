@@ -29,6 +29,16 @@ mypy>=1.5.0
 # Dashboard
 flask>=3.0.0
 flask-cors>=4.0.0
+openpyxl>=3.1.0
+requests>=2.31.0
+cachetools>=5.3.0
+
+# API REST
+fastapi>=0.146.0
+uvicorn>=0.23.0
+asyncpg>=0.28.0
+python-jose>=3.3.0
+bcrypt>=4.0.0
 
 # Documentation
 pyyaml>=6.0.1

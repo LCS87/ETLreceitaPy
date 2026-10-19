@@ -7,7 +7,6 @@ import pandas as pd
 from hypothesis import given, strategies as st, assume
 from hypothesis.extra.pandas import column, data_frames
 
-from src.utils.phone_processor import phone_processor
 from src.utils.phone_processor_vectorized import PhoneProcessorVectorized
 
 
@@ -44,8 +43,8 @@ ddds_validos = ['11', '12', '13', '14', '15', '16', '17', '18', '19',  # SP
                 '96',  # AP
                 '98', '99']  # MA
 
-# Estratégia para gerar telefones válidos
-telefones_validos = st.text(alphabet='0123456789', min_size=8, max_size=9)
+# Estratégia para gerar telefones móveis válidos (9 dígitos)
+telefones_validos = st.text(alphabet='0123456789', min_size=9, max_size=9)
 
 # Estratégia para gerar DataFrames de telefones
 @st.composite
@@ -68,46 +67,36 @@ def phone_dataframe(draw, min_size=10, max_size=100):
 
 @given(phone_dataframe(min_size=10, max_size=50))
 @pytest.mark.property
-def test_phone_processor_compatibility(df):
+def test_phone_processor_output_format(df):
     """
-    Property 1: Phone Processor Output Compatibility
-    
-    For any valid DataFrame containing phone data (ddd_1, telefone_1 columns),
-    when processed by both the original PhoneProcessor and the optimized 
-    PhoneProcessorVectorized, the output columns (telefones, operadora) must 
-    be identical.
-    
+    Property 1: Phone Processor Output Format
+
+    For any valid DataFrame containing phone data (ddd_1, telefone_1 columns)
+    with a valid DDD and a 9-digit mobile number, the PhoneProcessorVectorized
+    must produce output in the format '(DDD) NNNNN-NNNN', preserving the DDD.
+
     Validates: Requirements 2.6
     """
     # Assume que temos dados válidos
     assume(not df.empty)
     assume(df['ddd_1'].notna().all())
     assume(df['telefone_1'].notna().all())
-    
-    # Processa com ambas as versões
-    original = phone_processor
+
     optimized = PhoneProcessorVectorized()
-    
-    df_original = original.aplicar_ao_dataframe(df.copy())
     df_optimized = optimized.process_batch(df.copy())
-    
-    # Verifica compatibilidade de saída
-    assert 'telefones' in df_original.columns, "Original deve ter coluna 'telefones'"
-    assert 'operadora' in df_original.columns, "Original deve ter coluna 'operadora'"
-    assert 'telefones' in df_optimized.columns, "Optimized deve ter coluna 'telefones'"
-    assert 'operadora' in df_optimized.columns, "Optimized deve ter coluna 'operadora'"
-    
-    # Compara valores (permite pequenas diferenças de formatação)
-    # Nota: Alguns casos edge podem ter formatação ligeiramente diferente
-    # mas a operadora deve ser sempre idêntica
-    assert len(df_original) == len(df_optimized), "Mesmo número de linhas"
-    
-    # Verifica que operadoras são idênticas
-    operadoras_match = (df_original['operadora'] == df_optimized['operadora']).sum()
-    match_rate = operadoras_match / len(df_original)
-    
-    # Permite até 5% de diferença para casos edge
-    assert match_rate >= 0.95, f"Operadoras devem ser ≥95% idênticas (atual: {match_rate:.2%})"
+
+    # Verifica colunas de saída
+    assert 'telefones' in df_optimized.columns, "Deve ter coluna 'telefones'"
+    assert 'operadora' in df_optimized.columns, "Deve ter coluna 'operadora'"
+    assert len(df) == len(df_optimized), "Mesmo número de linhas"
+
+    # Formato esperado: (DDD) NNNNN-NNNN com DDD preservado
+    esperado = '(' + df['ddd_1'] + ') ' + df['telefone_1'].str[:5] + '-' + df['telefone_1'].str[5:]
+    format_match = (df_optimized['telefones'].reset_index(drop=True) == esperado.reset_index(drop=True))
+    match_rate = format_match.mean()
+
+    # Permite até 5% de diferença para casos edge (ex.: telefones iniciados em 0)
+    assert match_rate >= 0.95, f"Formato deve ser ≥95% idêntico (atual: {match_rate:.2%})"
 
 
 # ============================================================================

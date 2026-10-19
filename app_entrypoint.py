@@ -52,16 +52,9 @@ async def run_pipeline():
             logger.info("Conversão e enriquecimento integrado concluídos")
             metrics.record_file(stage="transform", status="success")
 
-        # 3. ETAPA: CARGA NO BANCO (BULK LOAD)
-        with metrics.track_duration(stage="database_load"):
-            logger.info("--- Passo 3: Carga (PostgreSQL Bulk Load) ---")
-            loader = PostgresLoader(db_config=config.DATABASE_URL)
-            loader.run_load_pipeline(silver_path=config.SILVER_DIR)
-
-            # 4. ETAPA: OTIMIZAÇÃO (ÍNDICES)
-            logger.info("--- Passo 4: Otimização Pós-Carga (Índices) ---")
-            loader.create_optimization_indexes()
-            metrics.record_file(stage="load", status="success")
+        # A carga e a criação dos índices já são executadas por pipeline.run()
+        # através do DataLoader injetado pela ELTPipelineFactory.
+        logger.info("Carga e índices concluídos pelo pipeline principal")
 
         # 5. ETAPA: EXPORTAÇÃO DE LEADS (JOIN FINAL)
         with metrics.track_duration(stage="export_csv"):

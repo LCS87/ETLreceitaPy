@@ -13,10 +13,10 @@
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-     test: ["CMD-SHELL", "pg_isready -U admin_receita -d receita_db"]
-     interval: 10s
-     timeout: 5s
-     retries: 5
+      test: ["CMD-SHELL", "pg_isready -U admin_receita -d receita_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # --- O PIPELINE (Worker) ---
   elt_pipeline:
@@ -43,8 +43,9 @@
     container_name: prometheus_service
     volumes:
       - ./prom_config.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus_alerts.yml:/etc/prometheus/alerts.yml
     ports:
-      - "9091:9090"  # <--- Mudamos aqui: o Windows acessa 9091, o Docker usa 9090
+      - "9091:9090" # <--- Mudamos aqui: o Windows acessa 9091, o Docker usa 9090
     depends_on:
       - elt_pipeline
 

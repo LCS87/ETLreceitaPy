@@ -107,9 +107,9 @@ class TestPrometheusMetricsVerification:
         """
         Verify that all required metrics are being exposed
         
-        Required metrics:
-        - elt_files_processed_total (Counter)
-        - elt_rows_inserted_total (Counter)
+        Required metrics (after prometheus_client strips _total suffix from Counters):
+        - elt_files_processed (Counter, exposed as elt_files_processed)
+        - elt_rows_inserted (Counter, exposed as elt_rows_inserted)
         - elt_processing_duration_seconds (Histogram)
         - system_cpu_usage_percent (Gauge)
         - system_ram_usage_percent (Gauge)
@@ -129,10 +129,17 @@ class TestPrometheusMetricsVerification:
                 exposed_metrics.add(family.name)
             
             # Verify all required metrics are present
+            # Note: prometheus_client strips _total suffix from Counter names
             missing_metrics = []
             for metric in required_metrics:
-                if metric not in exposed_metrics:
+                # Check both with and without _total suffix
+                if metric not in exposed_metrics and not metric.endswith('_total'):
                     missing_metrics.append(metric)
+                elif metric.endswith('_total') and metric not in exposed_metrics:
+                    # Try without _total suffix
+                    base_name = metric[:-6]  # Remove '_total'
+                    if base_name not in exposed_metrics:
+                        missing_metrics.append(metric)
             
             assert len(missing_metrics) == 0, \
                 f"Missing required metrics: {missing_metrics}. Exposed metrics: {sorted(exposed_metrics)}"

@@ -9,6 +9,29 @@ import time
 from typing import Dict, Any
 
 
+def _is_reachable(url: str, timeout: float = 2.0) -> bool:
+    """Verifica se um serviço de infraestrutura está acessível."""
+    try:
+        requests.get(url, timeout=timeout)
+        return True
+    except requests.exceptions.RequestException:
+        return False
+
+
+# Estes testes exigem a stack de monitoramento rodando (Grafana + Prometheus).
+# Quando os serviços não estão acessíveis localmente, os testes são pulados
+# em vez de falharem; com a stack ativa, as falhas reais continuam visíveis.
+MONITORING_STACK_AVAILABLE = (
+    _is_reachable("http://localhost:3001/api/health")
+    and _is_reachable("http://localhost:9091/-/healthy")
+)
+
+pytestmark = pytest.mark.skipif(
+    not MONITORING_STACK_AVAILABLE,
+    reason="Stack de monitoramento (Grafana :3001 / Prometheus :9091) indisponível",
+)
+
+
 class TestGrafanaSetup:
     """Test suite for verifying Grafana dashboard setup"""
     

@@ -184,6 +184,12 @@ cython_debug/
 # Pasta de dados — zips, parquet e exports (volume grande, não versionar)
 data/
 
+# Base de portabilidade (banco SQLite/DuckDB com dados de operadoras)
+base_portabilidade/*.db
+base_portabilidade/*.db-shm
+base_portabilidade/*.db-wal
+base_portabilidade/*.duckdb
+
 # Configurações do Kiro IDE
 .kiro/
 
@@ -200,3 +206,38 @@ docs/logs/
 
 # Arquivos de dados processados
 *.parquet.bak
+
+# Usuarios da API (senhas em hash bcrypt - nunca versionar)
+config/users.json
+config/users.example.json
+
+# Arquivos com IA, dados e analytics (não versionar)
+PLANO_CORRECOES_IA.md
+docs/benchmark_results.md
+docs/OPTIMIZATION_GUIDE.md
+
+# Arquivos de dashboard e analytics (dados sensíveis)
+run_dashboard.py
+src/analytics/
+src/dashboard/
+assets/tela*.png
+grafana_dashboard.json
+optimization_config.yml
+prom_config.yml
+prometheus_alerts.yml
+
+# Arquivos de exportação de dados (CSV, XLSX, leads)
+run_export_completo.py
+run_leads_anuais_export.py
+run_temp_nordeste_export.py
+populate_analytics.py
+frontend-saas/
+
+# Arquivos de workflow (processamento de dados)
+dags/workflow_receita.py
+
+# Arquivos de banco de dados locais (não versionar)
+*.db
+*.db-shm
+*.db-wal
+*.duckdb
